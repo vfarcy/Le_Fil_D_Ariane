@@ -99,7 +99,6 @@ jobs:
           print(f'Sujet détecté : {email_subject}')
 
           # --- Création de la campagne (Brouillon) AVEC le contenu ---
-          # ON A FUSIONNÉ LES DEUX ÉTAPES EN UNE SEULE
           campaign_data = {
               'type': 'regular',
               'name': f'Newsletter - {email_subject}',
@@ -110,8 +109,9 @@ jobs:
               'content': html_content,
           }
           try:
-              # On appelle l'endpoint de création de campagne "from_content"
-              r = requests.post(f'{API_URL}/campaigns/from_content', headers=HEADERS, json=campaign_data)
+              # --- LA CORRECTION EST ICI ---
+              # L'endpoint correct est '/campaigns', et non '/campaigns/from_content'
+              r = requests.post(f'{API_URL}/campaigns', headers=HEADERS, json=campaign_data)
               r.raise_for_status()
               campaign_id = r.json()['data']['id']
               print(f'Campagne brouillon créée avec son contenu. ID : {campaign_id}')
@@ -168,8 +168,6 @@ jobs:
           except Exception as e:
               print(f'Erreur lors de l\'envoi final : {e.response.text if hasattr(e, 'response') else e}'); sys.exit(1)
           "
-      # L'API v2 de MailerLite ne permet pas de supprimer une campagne.
-      # L'étape de nettoyage n'est donc pas incluse.
 
   # TÂCHE 3 : CONSTRUIRE LE SITE WEB STATIQUE
   build_site:
@@ -202,5 +200,8 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+
+
 
         
