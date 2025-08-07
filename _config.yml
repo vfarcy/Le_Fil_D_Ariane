@@ -1,0 +1,10 @@
+title: Le fil d'Ariane
+author: Votre Nom
+email: votre.email@domaine.com
+description: >-
+  Une exploration au carrefour de la philosophie, de l'IA, de la systémique et de la zététique.
+
+# Ne modifiez pas ce qui suit
+theme: minima
+plugins:
+  - jekyll-feed
