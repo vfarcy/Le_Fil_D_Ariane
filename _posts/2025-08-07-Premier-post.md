@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Mon frigo connecté est quasiment devenu un philosophe stoïcien ! ... "
+title: "Mon frigo connecté est quasiment devenu un philosophe stoïcien  ... "
 ---
 
 # Mon frigo connecté est quasiment devenu un philosophe stoïcien 
