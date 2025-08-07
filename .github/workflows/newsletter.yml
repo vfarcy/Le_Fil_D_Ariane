@@ -139,5 +139,68 @@ jobs:
           try:
               requests.post(f'{API_URL}/campaigns/{CAMPAIGN_ID}/send-test', headers=HEADERS, json=test_data).raise_for_status()
               print(f'Email de test envoyé avec succès à : {TEST_EMAIL}')
-          except Exception as
-          
+          except Exception as e:
+              print(f'Erreur lors de l\'envoi du test : {e.response.text if hasattr(e, 'response') else e}'); sys.exit(1)
+          "
+
+  # TÂCHE 2 : APPROBATION ET ENVOI FINAL DE L'E-MAIL
+  send_final_email:
+    name: 2. Approbation et Envoi Final (MailerLite)
+    if: "!contains(github.event.head_commit.message, '[skip-email]')"
+    needs: prepare_and_test_email
+    environment: Production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Final Campaign
+        env:
+          MAILERLITE_API_TOKEN: ${{ secrets.MAILERLITE_API_TOKEN }}
+          CAMPAIGN_ID: ${{ needs.prepare_and_test_email.outputs.campaign_id }}
+        run: |
+          python -c "
+          import os, requests, sys
+          API_TOKEN = os.environ.get('MAILERLITE_API_TOKEN')
+          CAMPAIGN_ID = os.environ.get('CAMPAIGN_ID')
+          API_URL = 'https://connect.mailerlite.com/api'
+          HEADERS = {'Authorization': f'Bearer {API_TOKEN}'}
+          try:
+              requests.post(f'{API_URL}/campaigns/{CAMPAIGN_ID}/send', headers=HEADERS).raise_for_status()
+              print('Approbation reçue ! La campagne est en cours d\'envoi final.')
+          except Exception as e:
+              print(f'Erreur lors de l\'envoi final : {e.response.text if hasattr(e, 'response') else e}'); sys.exit(1)
+          "
+      # L'API v2 de MailerLite ne permet pas de supprimer une campagne.
+      # L'étape de nettoyage n'est donc pas incluse.
+
+  # TÂCHE 3 : CONSTRUIRE LE SITE WEB STATIQUE
+  build_site:
+    name: 3. Construire le Site (GitHub Pages)
+    needs: send_final_email
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./_site
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+
+  # TÂCHE 4 : DÉPLOYER LE SITE WEB STATIQUE
+  deploy_site:
+    name: 4. Déployer le Site (GitHub Pages)
+    needs: build_site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+        
