@@ -11,7 +11,7 @@ Ce dépôt contient un système d'automatisation complet pour la newsletter **"L
 
 ---
 
-## 2. ⚠️ Avertissement Crucial : Prérequis Commercial
+## 2. ⚠️ Avertissement : Prérequis Commercial
 
 Ce workflow utilise l'API de MailerLite pour injecter du contenu HTML directement dans une campagne. Cette fonctionnalité est considérée comme une fonction "avancée" par MailerLite.
 
