@@ -98,19 +98,20 @@ jobs:
           email_subject = soup.find('h1').text if soup.find('h1') else 'Ma Nouvelle Newsletter'
           print(f'Sujet détecté : {email_subject}')
 
-          # --- Création de la campagne (Brouillon) AVEC le contenu ---
+          # --- Création de la campagne (Brouillon) ---
+          # --- LA CORRECTION EST ICI ---
           campaign_data = {
               'type': 'regular',
               'name': f'Newsletter - {email_subject}',
               'groups': [GROUP_ID],
-              'subject': email_subject,
-              'from_name': FROM_NAME,
-              'from': REPLY_TO_EMAIL,
-              'content': html_content,
+              'emails': [{
+                  'subject': email_subject,
+                  'from_name': FROM_NAME,
+                  'from': REPLY_TO_EMAIL,
+                  'content': html_content
+              }]
           }
           try:
-              # --- LA CORRECTION EST ICI ---
-              # L'endpoint correct est '/campaigns', et non '/campaigns/from_content'
               r = requests.post(f'{API_URL}/campaigns', headers=HEADERS, json=campaign_data)
               r.raise_for_status()
               campaign_id = r.json()['data']['id']
@@ -200,8 +201,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
-
-
-
         
