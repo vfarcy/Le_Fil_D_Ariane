@@ -1,1 +1,209 @@
-aaaa
+name: Envoyer la Newsletter et Déployer le Site (MailerLite)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '_posts/**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  # TÂCHE 1 : PRÉPARER L'E-MAIL ET LANCER LE TEST
+  prepare_and_test_email:
+    name: 1. Préparer et Tester l'E-mail (MailerLite)
+    # Ne s'exécute que si le message de commit ne contient PAS [skip-email]
+    if: "!contains(github.event.head_commit.message, '[skip-email]')"
+    runs-on: ubuntu-latest
+    outputs:
+      campaign_id: ${{ steps.create_campaign.outputs.campaign_id }}
+      skipped: ${{ steps.create_campaign.outputs.skipped }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests markdown beautifulsoup4
+
+      - name: Create Campaign Draft
+        id: create_campaign
+        env:
+          MAILERLITE_API_TOKEN: ${{ secrets.MAILERLITE_API_TOKEN }}
+          MAILERLITE_GROUP_ID: ${{ secrets.MAILERLITE_GROUP_ID }}
+          MAILERLITE_FROM_NAME: ${{ secrets.MAILERLITE_FROM_NAME }}
+          MAILERLITE_REPLY_TO_EMAIL: ${{ secrets.MAILERLITE_REPLY_TO_EMAIL }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.event.after }}
+        run: |
+          python -c "
+          import os, sys, requests, json, markdown, subprocess
+          from bs4 import BeautifulSoup
+
+          newsletter_file = None
+          try:
+              before_sha = os.environ.get('BEFORE_SHA')
+              after_sha = os.environ.get('AFTER_SHA')
+              git_command = f'git diff --name-only {before_sha} {after_sha} | grep \"_posts/.*\\.md$\"'
+              result = subprocess.run(git_command, shell=True, check=True, capture_output=True, text=True)
+              newsletter_file = result.stdout.strip().split('\n')[0]
+          except (subprocess.CalledProcessError, IndexError):
+              pass
+          if not newsletter_file:
+              print('Aucun fichier .md trouvé... Annulation.')
+              print(f'::set-output name=skipped::true')
+              sys.exit(0)
+          print(f'Fichier trouvé : {newsletter_file}')
+          print(f'::set-output name=skipped::false')
+
+          API_TOKEN = os.environ.get('MAILERLITE_API_TOKEN')
+          GROUP_ID = os.environ.get('MAILERLITE_GROUP_ID')
+          FROM_NAME = os.environ.get('MAILERLITE_FROM_NAME')
+          REPLY_TO_EMAIL = os.environ.get('MAILERLITE_REPLY_TO_EMAIL')
+          
+          API_URL = 'https://connect.mailerlite.com/api'
+          HEADERS = {'Authorization': f'Bearer {API_TOKEN}', 'Content-Type': 'application/json'}
+
+          with open(newsletter_file, 'r', encoding='utf-8') as f:
+              content_lines = f.readlines()
+              markdown_content = ''
+              in_front_matter = False
+              if content_lines and content_lines[0].strip() == '---':
+                  in_front_matter = True
+                  content_lines.pop(0)
+              for line in content_lines:
+                  if in_front_matter and line.strip() == '---':
+                      in_front_matter = False
+                      continue
+                  if not in_front_matter:
+                      markdown_content += line
+              html_content = markdown.markdown(markdown_content)
+          
+          soup = BeautifulSoup(html_content, 'html.parser')
+          email_subject = soup.find('h1').text if soup.find('h1') else 'Ma Nouvelle Newsletter'
+          print(f'Sujet détecté : {email_subject}')
+
+          campaign_data = {
+              'name': f'Newsletter - {email_subject}',
+              'type': 'regular',
+              'emails': [{'subject': email_subject, 'from_name': FROM_NAME, 'from': REPLY_TO_EMAIL}],
+              'groups': [GROUP_ID]
+          }
+          try:
+              r = requests.post(f'{API_URL}/campaigns', headers=HEADERS, json=campaign_data)
+              r.raise_for_status()
+              campaign_id = r.json()['data']['id']
+              print(f'Campagne brouillon créée avec succès. ID : {campaign_id}')
+              print(f'::set-output name=campaign_id::{campaign_id}')
+          except Exception as e:
+              print(f'Erreur lors de la création du brouillon: {e.response.text if hasattr(e, 'response') else e}'); sys.exit(1)
+
+          content_data = {'html': html_content}
+          try:
+              r = requests.post(f'{API_URL}/campaigns/{campaign_id}/content', headers=HEADERS, json=content_data)
+              r.raise_for_status()
+              print('Contenu HTML injecté avec succès.')
+          except Exception as e:
+              print(f'Erreur lors de l\'injection du contenu: {e.response.text if hasattr(e, 'response') else e}'); sys.exit(1)
+          "
+
+      - name: Send Test Email
+        if: steps.create_campaign.outputs.skipped != 'true'
+        env:
+          MAILERLITE_API_TOKEN: ${{ secrets.MAILERLITE_API_TOKEN }}
+          MAILERLITE_TEST_EMAIL: ${{ secrets.MAILERLITE_TEST_EMAIL }}
+          CAMPAIGN_ID: ${{ steps.create_campaign.outputs.campaign_id }}
+        run: |
+          python -c "
+          import os, requests, json, sys
+          API_TOKEN = os.environ.get('MAILERLITE_API_TOKEN')
+          CAMPAIGN_ID = os.environ.get('CAMPAIGN_ID')
+          TEST_EMAIL = os.environ.get('MAILERLITE_TEST_EMAIL')
+          API_URL = 'https://connect.mailerlite.com/api'
+          HEADERS = {'Authorization': f'Bearer {API_TOKEN}', 'Content-Type': 'application/json'}
+          
+          test_data = {'emails': [email.strip() for email in TEST_EMAIL.split(',') if email.strip()]}
+          try:
+              requests.post(f'{API_URL}/campaigns/{CAMPAIGN_ID}/send-test', headers=HEADERS, json=test_data).raise_for_status()
+              print(f'Email de test envoyé avec succès à : {TEST_EMAIL}')
+          except Exception as e:
+              print(f'Erreur lors de l\'envoi du test : {e.response.text if hasattr(e, 'response') else e}'); sys.exit(1)
+          "
+
+  # TÂCHE 2 : APPROBATION ET ENVOI FINAL DE L'E-MAIL
+  send_final_email:
+    name: 2. Approbation et Envoi Final (MailerLite)
+    # Ne s'exécute que si la tâche 1 n'a pas été sautée
+    if: "!contains(github.event.head_commit.message, '[skip-email]')"
+    needs: prepare_and_test_email
+    environment: Production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Final Campaign
+        env:
+          MAILERLITE_API_TOKEN: ${{ secrets.MAILERLITE_API_TOKEN }}
+          CAMPAIGN_ID: ${{ needs.prepare_and_test_email.outputs.campaign_id }}
+        run: |
+          python -c "
+          import os, requests, sys
+          API_TOKEN = os.environ.get('MAILERLITE_API_TOKEN')
+          CAMPAIGN_ID = os.environ.get('CAMPAIGN_ID')
+          API_URL = 'https://connect.mailerlite.com/api'
+          HEADERS = {'Authorization': f'Bearer {API_TOKEN}'}
+          try:
+              requests.post(f'{API_URL}/campaigns/{CAMPAIGN_ID}/send', headers=HEADERS).raise_for_status()
+              print('Approbation reçue ! La campagne est en cours d\'envoi final.')
+          except Exception as e:
+              print(f'Erreur lors de l\'envoi final : {e.response.text if hasattr(e, 'response') else e}'); sys.exit(1)
+          "
+      # Note : L'API v2 de MailerLite ne permet pas de supprimer une campagne.
+      # L'étape de nettoyage n'est donc pas incluse. Les brouillons rejetés
+      # peuvent être supprimés manuellement de temps en temps.
+
+  # TÂCHE 3 : CONSTRUIRE LE SITE WEB STATIQUE
+  build_site:
+    name: 3. Construire le Site (GitHub Pages)
+    # Démarre après l'envoi de l'email, ou si l'envoi d'email a été sauté
+    needs: send_final_email
+    # "always()" garantit que le site est publié même si les jobs d'email ont été sautés
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Build with Jekyll
+        uses: actions/jekyll-build-pages@v1
+        with:
+          source: ./
+          destination: ./_site
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+
+  # TÂCHE 4 : DÉPLOYER LE SITE WEB STATIQUE
+  deploy_site:
+    name: 4. Déployer le Site (GitHub Pages)
+    needs: build_site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+        
